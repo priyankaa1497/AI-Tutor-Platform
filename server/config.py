@@ -14,7 +14,14 @@ class Config:
     # Database configuration
     # Supports PostgreSQL; falls back gracefully to SQLite if not provided
     DATABASE_URL = os.getenv("DATABASE_URL")
-    if not DATABASE_URL or DATABASE_URL.strip() in ("", "sqlite:///learnai.db"):
+    if os.getenv("VERCEL") and (not DATABASE_URL or "sqlite" in DATABASE_URL):
+        tmp_db = "/tmp/learnai.db"
+        src_db = os.path.join(BASE_DIR, "learnai.db")
+        if not os.path.exists(tmp_db) and os.path.exists(src_db):
+            import shutil
+            shutil.copy2(src_db, tmp_db)
+        DATABASE_URL = f"sqlite:///{tmp_db}"
+    elif not DATABASE_URL or DATABASE_URL.strip() in ("", "sqlite:///learnai.db"):
         DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'learnai.db')}"
     elif DATABASE_URL.startswith("sqlite:///") and not os.path.isabs(DATABASE_URL[10:]):
         rel_path = DATABASE_URL[10:]
