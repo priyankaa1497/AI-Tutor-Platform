@@ -4,6 +4,7 @@
   "private": true,
   "description": "LearnAI - React, SQL, Python, Flask Architecture",
   "scripts": {
+    "build": "npm --prefix client install && npm --prefix client run build",
     "client:dev": "npm --prefix client run dev",
     "client:build": "npm --prefix client run build",
     "client:preview": "npm --prefix client run preview",
