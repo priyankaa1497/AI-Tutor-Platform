@@ -10,12 +10,17 @@ from ..services.ai_service import homework_hint_vision
 student_bp = Blueprint("student", __name__)
 
 @student_bp.route("/student/dashboard", methods=["GET"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def student_dashboard(user):
     db = get_db()
     prof = user.student_profile
     board = db.query(Board).filter_by(id=user.board_id).first() if user.board_id else None
+    if not board:
+        board = db.query(Board).filter_by(slug="cbse").first() or db.query(Board).first()
+
     grade = db.query(BoardGrade).filter_by(id=user.grade_id).first() if user.grade_id else None
+    if not grade and board:
+        grade = db.query(BoardGrade).filter_by(board_id=board.id).first()
 
     # Recommendations
     recs = db.query(StudentLearningRec).filter_by(student_id=user.id, status="open").order_by(StudentLearningRec.created_at.desc()).limit(5).all()
@@ -57,22 +62,34 @@ def student_dashboard(user):
     })
 
 @student_bp.route("/student/learning-recs", methods=["GET"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def get_learning_recs(user):
     db = get_db()
     recs = db.query(StudentLearningRec).filter_by(student_id=user.id, status="open").order_by(StudentLearningRec.created_at.desc()).all()
     return jsonify({"recs": [r.to_dict() for r in recs]})
 
+@student_bp.route("/student/learning-recs", methods=["PATCH"])
 @student_bp.route("/student/learning-recs/dismiss-all", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def dismiss_all_learning_recs(user):
     db = get_db()
     db.query(StudentLearningRec).filter_by(student_id=user.id).update({"status": "dismissed"})
     db.commit()
     return jsonify({"message": "All recommendations dismissed."})
 
+@student_bp.route("/student/learning-recs/<int:rec_id>", methods=["PATCH"])
+@auth_required(roles=["student", "teacher"])
+def dismiss_single_learning_rec(user, rec_id):
+    db = get_db()
+    rec = db.query(StudentLearningRec).filter_by(id=rec_id, student_id=user.id).first()
+    if rec:
+        rec.status = "dismissed"
+        db.commit()
+    return jsonify({"message": "Recommendation dismissed."})
+
+
 @student_bp.route("/student/session-feedback", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def session_feedback(user):
     db = get_db()
     body = request.get_json() or {}

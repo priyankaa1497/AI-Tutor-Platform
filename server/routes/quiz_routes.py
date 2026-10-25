@@ -13,7 +13,7 @@ from ..services.ai_service import chat_completion
 quiz_bp = Blueprint("quiz", __name__)
 
 @quiz_bp.route("/teacher/curriculum", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def get_curriculum(user):
     db = get_db()
     curricula = db.query(Curriculum).all()
@@ -32,7 +32,7 @@ def get_curriculum(user):
     return jsonify({"curriculum": tree})
 
 @quiz_bp.route("/teacher/quizzes", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def list_teacher_quizzes(user):
     db = get_db()
     quiz_type = request.args.get("type")
@@ -43,7 +43,7 @@ def list_teacher_quizzes(user):
     return jsonify({"quizzes": [q.to_dict() for q in quizzes]})
 
 @quiz_bp.route("/teacher/quizzes", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def create_teacher_quiz(user):
     db = get_db()
     body = request.get_json() or {}
@@ -89,7 +89,7 @@ def create_teacher_quiz(user):
     return jsonify({"quiz": quiz.to_dict()})
 
 @quiz_bp.route("/teacher/quizzes/<int:quiz_id>", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def get_teacher_quiz(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
@@ -97,8 +97,37 @@ def get_teacher_quiz(user, quiz_id):
         return jsonify({"message": "Quiz not found."}), 404
     return jsonify({"quiz": quiz.to_dict()})
 
+@quiz_bp.route("/teacher/quizzes/<int:quiz_id>", methods=["PATCH"])
+@auth_required(roles=["teacher", "student"])
+def update_teacher_quiz(user, quiz_id):
+    db = get_db()
+    quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
+    if not quiz:
+        return jsonify({"message": "Quiz not found."}), 404
+    body = request.get_json() or {}
+    for field in ["title", "difficulty", "duration_minutes", "total_marks", "pass_percentage", "status"]:
+        if field in body:
+            setattr(quiz, field, body[field])
+    db.commit()
+    return jsonify({"message": "Quiz updated successfully.", "quiz": quiz.to_dict()})
+
+@quiz_bp.route("/teacher/quizzes/<int:quiz_id>", methods=["DELETE"])
+@auth_required(roles=["teacher", "student"])
+def delete_teacher_quiz(user, quiz_id):
+    db = get_db()
+    quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
+    if not quiz:
+        return jsonify({"message": "Quiz not found."}), 404
+    for att in quiz.attempts:
+        db.query(QuizAttemptAnswer).filter_by(attempt_id=att.id).delete()
+    db.query(QuizAttempt).filter_by(quiz_id=quiz.id).delete()
+    db.query(QuizQuestion).filter_by(quiz_id=quiz.id).delete()
+    db.delete(quiz)
+    db.commit()
+    return jsonify({"message": "Quiz deleted successfully."})
+
 @quiz_bp.route("/teacher/quizzes/<int:quiz_id>/publish", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def publish_teacher_quiz(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
@@ -112,8 +141,128 @@ def publish_teacher_quiz(user, quiz_id):
 
     return jsonify({"message": "Quiz published successfully.", "quiz": quiz.to_dict()})
 
+
+@quiz_bp.route("/teacher/quizzes/generate", methods=["POST"])
+@auth_required(roles=["teacher", "student"])
+def generate_teacher_quiz(user):
+    db = get_db()
+    body = request.get_json() or {}
+    quiz_type = body.get("quiz_type", "quiz")
+    default_title = "Practice Quiz" if quiz_type == "quiz" else "Board Exam Mock Test"
+    title = body.get("title", default_title)
+    board_id = body.get("board_id")
+    grade_id = body.get("grade_id") or 1
+    grade_label = body.get("grade_label", "Class 7")
+    subject_id = body.get("subject_id")
+    subject_label = body.get("subject_label", "Science")
+    unit_id = body.get("curriculum_unit_id")
+    lesson_title = body.get("lesson_title", "General Unit")
+    topic_title = body.get("topic_title") or lesson_title
+    difficulty = body.get("difficulty", "beginner" if quiz_type == "quiz" else "exam")
+    question_count = int(body.get("question_count", 5))
+    duration_minutes = int(body.get("duration_minutes", 15 if quiz_type == "quiz" else 20))
+    total_marks = int(body.get("total_marks", 100))
+    pass_percentage = int(body.get("pass_percentage", 50))
+
+    quiz = Quiz(
+        teacher_id=user.id,
+        title=title,
+        board_id=board_id,
+        grade_id=grade_id,
+        grade_label=grade_label,
+        subject_id=subject_id,
+        subject_label=subject_label,
+        curriculum_unit_id=unit_id,
+        lesson_title=lesson_title,
+        topic_title=topic_title,
+        difficulty=difficulty,
+        quiz_type=quiz_type,
+        duration_minutes=duration_minutes,
+        total_marks=total_marks,
+        pass_percentage=pass_percentage,
+        question_count=question_count,
+        status="published",
+        published_at=datetime.utcnow()
+    )
+    db.add(quiz)
+    db.commit()
+
+    # Generate questions via AI
+    if quiz_type == "mock_test":
+        prompt = (
+            f"Generate {question_count} rigorous multiple-choice examination questions for {grade_label} {subject_label} "
+            f"board exam mock test on '{lesson_title}' ({topic_title}). Difficulty: {difficulty}.\n"
+            "Requirements for Mock Exam questions:\n"
+            "1. Authentic curriculum board exam style scenario with high conceptual validity.\n"
+            "2. Exactly 4 clear options (A, B, C, D) with plausible distractors.\n"
+            "3. State the exact correct option letter.\n"
+            "4. Provide step-by-step rigorous explanation and a misconception hint.\n"
+            "Return strict JSON array with elements: "
+            "{\"type\": \"mcq\", \"prompt\": \"...\", \"options\": [\"A. ...\", \"B. ...\", \"C. ...\", \"D. ...\"], "
+            "\"correct_answer\": \"A\", \"explanation\": \"...\", \"misconception_hint\": \"...\"}"
+        )
+    else:
+        prompt = (
+            f"Generate {question_count} multiple-choice quiz questions for {grade_label} {subject_label} "
+            f"on '{lesson_title}' ({topic_title}). Difficulty: {difficulty}.\n"
+            "Return strict JSON array with elements: "
+            "{\"type\": \"mcq\", \"prompt\": \"...\", \"options\": [\"A. ...\", \"B. ...\", \"C. ...\", \"D. ...\"], "
+            "\"correct_answer\": \"A\", \"explanation\": \"...\", \"misconception_hint\": \"...\"}"
+        )
+
+    reply = chat_completion("You are an educational assessment expert. Return JSON array only.", [{"role": "user", "content": prompt}], max_tokens=1800, temperature=0.5)
+
+    created_questions = []
+    try:
+        match = re.search(r"\[.*\]", reply, re.DOTALL)
+        if match:
+            items = json.loads(match.group(0))
+            for idx, item in enumerate(items):
+                opts = item.get("options", [])
+                correct = item.get("correct_answer", "")
+                if len(str(correct)) == 1 and opts:
+                    letter = str(correct).upper()
+                    matched_opt = next((o for o in opts if o.startswith(letter)), None)
+                    if matched_opt:
+                        correct = matched_opt
+                q = QuizQuestion(
+                    quiz_id=quiz.id,
+                    sort_order=idx + 1,
+                    type=item.get("type", "mcq"),
+                    prompt=item.get("prompt", f"Question {idx+1}"),
+                    options=opts,
+                    correct_answer=str(correct or (opts[0] if opts else "Option A")),
+                    explanation=item.get("explanation", "Standard explanation."),
+                    misconception_hint=item.get("misconception_hint", "Review key terms."),
+                )
+                db.add(q)
+                created_questions.append(q)
+            db.commit()
+    except Exception as e:
+        print(f"[QUIZ GENERATE ERROR] {e}")
+
+    if not created_questions:
+        q = QuizQuestion(
+            quiz_id=quiz.id,
+            sort_order=1,
+            type="mcq",
+            prompt=f"Which fundamental principle governs {lesson_title} in {subject_label}?",
+            options=[f"A. First Principles of {subject_label}", "B. Secondary Principle", "C. Experimental Anomaly", "D. Inactive State"],
+            correct_answer=f"A. First Principles of {subject_label}",
+            explanation="This is a core foundational concept.",
+            misconception_hint="Focus on the primary governing law.",
+        )
+        db.add(q)
+        db.commit()
+        created_questions.append(q)
+
+    quiz.question_count = len(quiz.questions)
+    db.commit()
+
+    return jsonify({"message": "Quiz generated successfully.", "quiz": quiz.to_dict()})
+
 @quiz_bp.route("/teacher/quizzes/<int:quiz_id>/questions", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def generate_questions(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
@@ -190,8 +339,87 @@ def generate_questions(user, quiz_id):
 
     return jsonify({"questions": [q.to_dict() for q in created_questions]})
 
+@quiz_bp.route("/teacher/quizzes/<int:quiz_id>/questions/<int:question_id>", methods=["PATCH"])
+@auth_required(roles=["teacher", "student"])
+def patch_quiz_question(user, quiz_id, question_id):
+    db = get_db()
+    q = db.query(QuizQuestion).filter_by(id=question_id, quiz_id=quiz_id).first()
+    if not q:
+        return jsonify({"message": "Question not found."}), 404
+    body = request.get_json() or {}
+    for f in ["prompt", "options", "correct_answer", "explanation", "misconception_hint"]:
+        if f in body:
+            setattr(q, f, body[f])
+    db.commit()
+    return jsonify({"message": "Question updated.", "question": q.to_dict()})
+
+@quiz_bp.route("/teacher/quizzes/<int:quiz_id>/questions/<int:question_id>", methods=["DELETE"])
+@auth_required(roles=["teacher", "student"])
+def delete_quiz_question(user, quiz_id, question_id):
+    db = get_db()
+    q = db.query(QuizQuestion).filter_by(id=question_id, quiz_id=quiz_id).first()
+    if not q:
+        return jsonify({"message": "Question not found."}), 404
+    db.delete(q)
+    db.commit()
+    return jsonify({"message": "Question deleted."})
+
+@quiz_bp.route("/teacher/quizzes/<int:quiz_id>/questions/<int:question_id>/regenerate", methods=["POST"])
+@auth_required(roles=["teacher", "student"])
+def regenerate_quiz_question(user, quiz_id, question_id):
+    db = get_db()
+    quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
+    q = db.query(QuizQuestion).filter_by(id=question_id, quiz_id=quiz_id).first()
+    if not quiz or not q:
+        return jsonify({"message": "Question not found."}), 404
+    prompt = (
+        f"Regenerate a distinct multiple choice question on '{quiz.lesson_title}' ({q.topic_title or quiz.topic_title or 'General'}).\n"
+        "Return strict JSON: {\"prompt\": \"...\", \"options\": [\"A. ...\", \"B. ...\", \"C. ...\", \"D. ...\"], \"correct_answer\": \"A. ...\", \"explanation\": \"...\", \"misconception_hint\": \"...\"}"
+    )
+    reply = chat_completion("You are an educational assessment expert. Return JSON only.", [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.7)
+    try:
+        match = re.search(r"\{.*\}", reply, re.DOTALL)
+        if match:
+            item = json.loads(match.group(0))
+            q.prompt = item.get("prompt", q.prompt)
+            q.options = item.get("options", q.options)
+            q.correct_answer = str(item.get("correct_answer", q.correct_answer))
+            q.explanation = item.get("explanation", q.explanation)
+            q.misconception_hint = item.get("misconception_hint", q.misconception_hint)
+            db.commit()
+    except Exception as e:
+        print(f"[REGEN ERROR] {e}")
+    return jsonify({"message": "Question regenerated.", "question": q.to_dict()})
+
+@quiz_bp.route("/teacher/quizzes/<int:quiz_id>/insights", methods=["POST"])
+@auth_required(roles=["teacher", "student"])
+def generate_quiz_insights(user, quiz_id):
+    db = get_db()
+    quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
+    if not quiz:
+        return jsonify({"message": "Quiz not found."}), 404
+    attempts = db.query(QuizAttempt).filter_by(quiz_id=quiz.id).all()
+    completed = [a for a in attempts if a.status == "completed"]
+    scores = [float(a.score_percent) for a in completed if a.score_percent is not None]
+    avg = round(sum(scores) / len(scores), 1) if scores else 0
+    return jsonify({
+        "insights": f"Analyzed {len(completed)} student submissions for '{quiz.title}'. Class average is {avg}%. Focus on foundational units in upcoming sessions."
+    })
+
+@quiz_bp.route("/teacher/students/<int:student_id>/quiz-insights", methods=["GET"])
+@auth_required(roles=["teacher", "student"])
+def student_quiz_insights(user, student_id):
+    db = get_db()
+    student = db.query(User).filter_by(id=student_id).first()
+    attempts = db.query(QuizAttempt).filter_by(student_id=student_id).all() if student else []
+    return jsonify({
+        "student": student.to_dict() if student else None,
+        "attempts_count": len(attempts),
+        "recent_attempts": [a.to_dict() for a in attempts[:5]]
+    })
+
 @quiz_bp.route("/teacher/quizzes/<int:quiz_id>/analytics", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def quiz_analytics(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, teacher_id=user.id).first()
@@ -215,7 +443,7 @@ def quiz_analytics(user, quiz_id):
 # --- STUDENT QUIZ & MOCK TEST ROUTES ---
 
 @quiz_bp.route("/student/quizzes", methods=["GET"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def list_student_quizzes(user):
     db = get_db()
     quiz_type = request.args.get("type", "quiz")
@@ -253,7 +481,7 @@ def list_student_quizzes(user):
     })
 
 @quiz_bp.route("/student/mock-tests", methods=["GET"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def list_student_mock_tests(user):
     db = get_db()
     quizzes = db.query(Quiz).filter_by(status="published", quiz_type="mock_test").order_by(Quiz.created_at.desc()).all()
@@ -287,7 +515,7 @@ def list_student_mock_tests(user):
     })
 
 @quiz_bp.route("/student/quizzes/<int:quiz_id>", methods=["GET"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def get_student_quiz(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, status="published").first()
@@ -314,7 +542,7 @@ def get_student_quiz(user, quiz_id):
     return jsonify({"quiz": data, "questions": questions_data, "attempt": attempt.to_dict() if attempt else None})
 
 @quiz_bp.route("/student/quizzes/<int:quiz_id>/start", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def start_quiz_attempt(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, status="published").first()
@@ -351,7 +579,7 @@ def start_quiz_attempt(user, quiz_id):
     })
 
 @quiz_bp.route("/student/quiz-attempts/<int:attempt_id>", methods=["GET"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def get_attempt_by_id(user, attempt_id):
     db = get_db()
     attempt = db.query(QuizAttempt).filter_by(id=attempt_id, student_id=user.id).first()
@@ -379,7 +607,7 @@ def get_attempt_by_id(user, attempt_id):
 
 @quiz_bp.route("/student/quizzes/<int:quiz_id>/answer", methods=["POST"])
 @quiz_bp.route("/student/quiz-attempts/<int:quiz_id>/submit-answer", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def submit_answer(user, quiz_id):
     db = get_db()
     body = request.get_json() or {}
@@ -473,7 +701,7 @@ def submit_answer(user, quiz_id):
     })
 
 @quiz_bp.route("/student/quiz-attempts/<int:attempt_id>/tutor", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def quiz_tutor_chat(user, attempt_id):
     db = get_db()
     attempt = db.query(QuizAttempt).filter_by(id=attempt_id, student_id=user.id).first()
@@ -522,7 +750,7 @@ def quiz_tutor_chat(user, attempt_id):
     return jsonify({"tutor_reply": tutor_reply, "reply": tutor_reply, "tutor_thread": thread})
 
 @quiz_bp.route("/student/quiz-attempts/<int:attempt_id>/complete", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def complete_quiz_attempt(user, attempt_id):
     db = get_db()
     attempt = db.query(QuizAttempt).filter_by(id=attempt_id, student_id=user.id).first()
@@ -545,7 +773,7 @@ def complete_quiz_attempt(user, attempt_id):
 # --- MOCK TEST FULL EXAM ENGINE ---
 
 @quiz_bp.route("/student/mock-tests/<int:quiz_id>/start", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def start_mock_test(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, status="published").first()
@@ -579,7 +807,7 @@ def start_mock_test(user, quiz_id):
     })
 
 @quiz_bp.route("/student/mock-tests/<int:quiz_id>/submit", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def submit_mock_test(user, quiz_id):
     db = get_db()
     quiz = db.query(Quiz).filter_by(id=quiz_id, status="published").first()
@@ -693,7 +921,7 @@ def submit_mock_test(user, quiz_id):
     })
 
 @quiz_bp.route("/student/mock-tests/<int:quiz_id>/retake", methods=["POST"])
-@auth_required(roles="student")
+@auth_required(roles=["student", "teacher"])
 def retake_mock_test(user, quiz_id):
     db = get_db()
     attempt = db.query(QuizAttempt).filter_by(quiz_id=quiz_id, student_id=user.id).first()

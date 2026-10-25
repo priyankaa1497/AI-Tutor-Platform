@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import TeacherAccountSettings from '../components/TeacherAccountSettings.jsx'
 import TeacherInsights from '../components/TeacherInsights.jsx'
@@ -91,6 +92,13 @@ function TeacherDashboard() {
 
   const actions = (
     <>
+      <Link
+        to="/student"
+        className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--flap-primary)] bg-[var(--flap-primary)]/10 hover:bg-[var(--flap-primary)]/20 border border-[var(--flap-primary)]/30 rounded no-underline transition-all shadow-sm"
+      >
+        <span>Student View</span>
+        <span>→</span>
+      </Link>
       <button
         type="button"
         className="relative p-2 text-[var(--flap-mute)] hover:text-[var(--flap-ink)] border-none bg-transparent cursor-pointer"

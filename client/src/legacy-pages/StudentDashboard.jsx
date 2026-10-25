@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth.js'
 import {
   RESPONSE_MODES,
@@ -1274,6 +1275,13 @@ function StudentDashboard() {
         sub="Concourse · Student"
         actions={
           <div className="flex items-center gap-3">
+            <Link
+              to="/teacher"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--flap-accent)] bg-[var(--flap-accent)]/10 hover:bg-[var(--flap-accent)]/20 border border-[var(--flap-accent)]/30 rounded no-underline transition-all shadow-sm"
+            >
+              <span>Teacher Portal</span>
+              <span>→</span>
+            </Link>
             <div className="hidden sm:block text-right leading-tight">
               <p className="font-[family-name:var(--font-flap)] text-[12px] font-semibold tracking-[0.08em] uppercase text-[var(--flap-ink)] m-0">
                 {displayName}

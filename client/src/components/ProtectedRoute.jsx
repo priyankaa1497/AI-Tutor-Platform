@@ -17,12 +17,8 @@ function ProtectedRoute({ children, requiredRole, requireOnboarding = true }) {
       navigate('/login', { replace: true })
       return
     }
-    const dest = resolveRoute(user)
-    if (requiredRole && effectiveRole !== requiredRole) {
-      navigate(dest, { replace: true })
-      return
-    }
-    if (requiredRole === 'teacher') {
+    // If user is accessing teacher onboarding but already completed it, or vice versa
+    if (requiredRole === 'teacher' && effectiveRole === 'teacher') {
       if (requireOnboarding && !user?.onboarding_completed) {
         navigate('/teacher-onboarding', { replace: true })
       }
@@ -40,10 +36,7 @@ function ProtectedRoute({ children, requiredRole, requireOnboarding = true }) {
   if (!authReady || !isAuthenticated) {
     return <div className="min-h-screen bg-[#eff6ff]" aria-hidden="true" />
   }
-  if (requiredRole && effectiveRole !== requiredRole) {
-    return <div className="min-h-screen bg-[#eff6ff]" aria-hidden="true" />
-  }
-  if (requiredRole === 'teacher' && requireOnboarding && !user?.onboarding_completed) {
+  if (requiredRole === 'teacher' && effectiveRole === 'teacher' && requireOnboarding && !user?.onboarding_completed) {
     return <div className="min-h-screen bg-[#eff6ff]" aria-hidden="true" />
   }
   return children

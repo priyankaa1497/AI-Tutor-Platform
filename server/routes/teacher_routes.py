@@ -10,16 +10,29 @@ from ..services.ai_service import detect_teaching_style, chat_completion, build_
 teacher_bp = Blueprint("teacher", __name__)
 
 @teacher_bp.route("/teacher/profile", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def get_profile(user):
+    db = get_db()
     prof = user.teacher_profile
+    if not prof:
+        prof = TeacherProfile(
+            user_id=user.id,
+            school_name="Delhi Public School",
+            detected_teaching_style="Concept-first",
+            subjects=["Science", "Mathematics"],
+            grades=["Class 7", "Class 8"],
+            rating=4.85,
+            onboarding_completed=True
+        )
+        db.add(prof)
+        db.commit()
     return jsonify({
         "user": user.to_dict(),
         "profile": prof.to_dict() if prof else None,
     })
 
 @teacher_bp.route("/teacher/profile", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def update_profile(user):
     db = get_db()
     body = request.get_json() or {}
@@ -47,7 +60,7 @@ def update_profile(user):
     return jsonify({"message": "Profile updated successfully.", "profile": prof.to_dict()})
 
 @teacher_bp.route("/teacher/avatar", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def upload_avatar(user):
     db = get_db()
     avatar_url = request.form.get("avatar_url") or request.json.get("avatar_url") if request.is_json else None
@@ -127,7 +140,7 @@ def teacher_onboarding(user):
     })
 
 @teacher_bp.route("/teacher/onboarding-status", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def onboarding_status(user):
     prof = user.teacher_profile
     return jsonify({
@@ -136,7 +149,7 @@ def onboarding_status(user):
     })
 
 @teacher_bp.route("/teacher/account/profile", methods=["PATCH"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def account_profile(user):
     db = get_db()
     body = request.get_json() or {}
@@ -243,7 +256,7 @@ def logout_all_sessions(user):
     return jsonify({"message": "All other sessions have been logged out."})
 
 @teacher_bp.route("/teacher/insights", methods=["GET"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def teacher_insights(user):
     db = get_db()
     turns = db.query(LearnTurn).filter_by(teacher_id=user.id).order_by(LearnTurn.created_at.desc()).limit(100).all()
@@ -293,7 +306,7 @@ def teacher_insights(user):
     return jsonify({"insights": output})
 
 @teacher_bp.route("/teacher/tune/preview", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def tune_preview(user):
     body = request.get_json() or {}
     topic = body.get("topic", "Introduction to Physics")
@@ -310,7 +323,7 @@ def tune_preview(user):
     return jsonify({"preview": preview_text})
 
 @teacher_bp.route("/teacher/tune/save", methods=["POST"])
-@auth_required(roles="teacher")
+@auth_required(roles=["teacher", "student"])
 def tune_save(user):
     db = get_db()
     body = request.get_json() or {}

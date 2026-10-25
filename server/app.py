@@ -13,7 +13,12 @@ def create_app(config_class=Config):
 
     # Initialize SQL Database
     with app.app_context():
-        init_db(app)
+        db = init_db(app)
+        try:
+            from .seeds import ensure_seeded
+            ensure_seeded(db)
+        except Exception as e:
+            print(f"[INIT SEED ERROR] {e}")
 
     # Register blueprints under /api prefix
     from .routes.auth_routes import auth_bp

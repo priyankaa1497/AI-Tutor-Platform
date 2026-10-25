@@ -13,5 +13,6 @@ env/
 
 # Databases
 *.db
+!learnai.db
 *.sqlite
 *.sqlite3

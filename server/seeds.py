@@ -73,35 +73,40 @@ DEMO_TEACHERS = [
     },
 ]
 
-def seed_database():
-    from flask import Flask
-    app = Flask(__name__)
-    app.config.from_object(Config)
-    init_db(app)
-    db = get_db()
-    # Clear any old data to only keep clean demo credentials
-    print("Clearing old non-demo data to preserve clean state...")
+def ensure_seeded(db):
     try:
-        db.query(QuizAttemptAnswer).delete()
-        db.query(QuizAttempt).delete()
-        db.query(QuizQuestion).delete()
-        db.query(Quiz).delete()
-        db.query(StudentLearningRec).delete()
-        db.query(LearnTurn).delete()
-        db.query(TeacherRating).delete()
-        db.query(StudentProfile).delete()
-        db.query(TeacherProfile).delete()
-        db.query(User).delete()
-        db.query(CurriculumUnitTopic).delete()
-        db.query(CurriculumUnit).delete()
-        db.query(Curriculum).delete()
-        db.query(Subject).delete()
-        db.query(BoardGrade).delete()
-        db.query(Board).delete()
-        db.commit()
+        if db.query(Board).first() is None:
+            print("[AUTO-SEED] Database empty. Running seed_database_session...")
+            seed_database_session(db, clear_old=False)
+            print("[AUTO-SEED] Seeding completed successfully.")
     except Exception as e:
-        db.rollback()
-        print(f"Notice on clear: {e}")
+        print(f"[AUTO-SEED NOTICE] {e}")
+
+def seed_database_session(db, clear_old=False):
+    if clear_old:
+        # Clear any old data to only keep clean demo credentials
+        print("Clearing old non-demo data to preserve clean state...")
+        try:
+            db.query(QuizAttemptAnswer).delete()
+            db.query(QuizAttempt).delete()
+            db.query(QuizQuestion).delete()
+            db.query(Quiz).delete()
+            db.query(StudentLearningRec).delete()
+            db.query(LearnTurn).delete()
+            db.query(TeacherRating).delete()
+            db.query(StudentProfile).delete()
+            db.query(TeacherProfile).delete()
+            db.query(User).delete()
+            db.query(CurriculumUnitTopic).delete()
+            db.query(CurriculumUnit).delete()
+            db.query(Curriculum).delete()
+            db.query(Subject).delete()
+            db.query(BoardGrade).delete()
+            db.query(Board).delete()
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Notice on clear: {e}")
 
     print("Seeding boards and grades...")
     board_objs = {}
@@ -546,6 +551,15 @@ def seed_database():
             db.commit()
 
     print("Database seeding completed successfully with all rich demo teachers, quizzes, and curriculum data!")
+    return True
+
+def seed_database():
+    from flask import Flask
+    app = Flask(__name__)
+    app.config.from_object(Config)
+    init_db(app)
+    db = get_db()
+    seed_database_session(db, clear_old=True)
 
 if __name__ == "__main__":
     seed_database()

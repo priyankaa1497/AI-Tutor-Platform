@@ -65,6 +65,7 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 *.db
+!server/learnai.db
 *.db-journal
 
 # OS / editor
